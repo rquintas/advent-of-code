@@ -14,8 +14,8 @@ struct Frame {
 }
 
 fn main () {
-    // let entry: Vec<char> = "D2FE2800000".chars().collect();
-    let entry: Vec<char> = "38006F4529120000000000000000000000000000000000000000000".chars().collect();
+    let entry: Vec<char> = "D2FE2800000".chars().collect();
+    // let entry: Vec<char> = "38006F4529120000000000000000000000000000000000000000000".chars().collect();
     // let entry: Vec<char> = "EE00D40C823060".chars().collect();
     // let entry: Vec<char> = "8A004A801A8002F478".chars().collect();
 
@@ -31,9 +31,11 @@ fn main () {
 
     let mut iterator = entry.iter();
     
-    while ingest(&mut iterator, &mut tape, &mut carry) {
-        step(&mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
-    }
+    // while ingest(&mut iterator, &mut tape, &mut carry) {
+    //     step(&mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
+    // }
+
+    read_packet(&mut iterator, &mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
 
     // while carry > 0 {
     //     println!("{:?}", frame);
@@ -42,8 +44,8 @@ fn main () {
     //     step(&mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
     // }
 
-    println!("{:?}", stack);
-    println!("{:?}", packets);
+    // println!("{:?}", stack);
+    // println!("{:?}", packets);
 
 }
 
@@ -62,7 +64,25 @@ fn ingest<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &m
     }
 }
 
-fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque<Frame>, packets: &mut Vec<Frame>) {
+fn read_packet<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque<Frame>, packets: &mut Vec<Frame>) {
+
+    let mut finished = false;
+    while ! finished {
+        match step(tape, carry, frame, stack, packets) {
+            Some(p) => {
+                println!("{:?}", p);
+                finished = true;
+                break;
+            },
+            _ => { 
+                ingest(it, tape, carry);
+            }
+        }
+    }
+
+}
+
+fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque<Frame>, packets: &mut Vec<Frame>) -> Option<Frame> {
     match frame.state {
         0 => {
             // read version
@@ -89,12 +109,13 @@ fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque
                 4 => {
                     if *carry >= 5 {
                         let block_end = read(1, tape, carry, frame).unwrap();
+                        
+                        frame.acc <<= 4;
                         frame.acc |= read(4, tape, carry, frame).unwrap();
+
                         if block_end == 0 {
                             // finished reading literal
                             frame.state = 3;
-                        } else {
-                            frame.acc <<= 4;
                         }
                     }
                 },
@@ -159,9 +180,13 @@ fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque
 
             // New frame
             *frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, limit: -1, limit_packets: -1, packets: vec![]};
+
+            return Some(frame.clone());
         }
         _ => {}
     }
+
+    return None;
 }
 
 fn read(nr_bytes: u32, tape: &mut u32, carry: &mut u32, frame: &mut Frame) -> Option<u32> {
