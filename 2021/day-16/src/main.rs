@@ -7,25 +7,18 @@ struct Frame {
     version: u32,
     opcode: u32,
     acc: u32,
-    limit: i32,
-    limit_packets: i32,
     size: u32,
     packets: Vec<Frame>
 }
 
 fn main () {
-    let entry: Vec<char> = "D2FE2800000".chars().collect();
-    // let entry: Vec<char> = "38006F4529120000000000000000000000000000000000000000000".chars().collect();
+    // let entry: Vec<char> = "D2FE2800000".chars().collect();
+    let entry: Vec<char> = "38006F45291200".chars().collect();
     // let entry: Vec<char> = "EE00D40C823060".chars().collect();
     // let entry: Vec<char> = "8A004A801A8002F478".chars().collect();
 
     let mut tape: u32 = 0;
     let mut carry: u32 = 0;
-
-    let mut packets: Vec<Frame> = Vec::new();
-    let mut stack: VecDeque<Frame> = VecDeque::new();
-
-    let mut frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, limit: -1, limit_packets: -1, packets: vec![]};
 
     // Run read loop
 
@@ -35,7 +28,7 @@ fn main () {
     //     step(&mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
     // }
 
-    read_packet(&mut iterator, &mut tape, &mut carry, &mut frame, &mut stack, &mut packets);
+    read_packet(&mut iterator, &mut tape, &mut carry);
 
     // while carry > 0 {
     //     println!("{:?}", frame);
@@ -64,25 +57,36 @@ fn ingest<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &m
     }
 }
 
-fn read_packet<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque<Frame>, packets: &mut Vec<Frame>) {
+fn read_packet<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &mut u32) -> Frame {
+
+    let mut frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, packets: vec![]};
 
     let mut finished = false;
+
     while ! finished {
-        match step(tape, carry, frame, stack, packets) {
+        match step(it, tape, carry, &mut frame) {
             Some(p) => {
                 println!("{:?}", p);
                 finished = true;
                 break;
             },
             _ => { 
-                ingest(it, tape, carry);
+                match ingest(it, tape, carry) {
+                    true => {},
+                    false => {
+                        // If already finished ingesting keep adding padding.
+                        *tape <<= 1;
+                        *carry += 1;
+                    }
+                }
             }
         }
     }
 
+    return frame;
 }
 
-fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque<Frame>, packets: &mut Vec<Frame>) -> Option<Frame> {
+fn step<'a>(it: &mut impl Iterator<Item = &'a char>, tape: &mut u32, carry: &mut u32, frame: &mut Frame) -> Option<Frame> {
     match frame.state {
         0 => {
             // read version
@@ -123,21 +127,35 @@ fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque
                 _ => {
 
                     if *carry >= 16 {
+
                         let length_type_id = read(1, tape, carry, frame).unwrap();
+
                         if length_type_id == 1 {
                             // number of sub-packets immediately contained
                             let number_of_packets = read(11, tape, carry, frame).unwrap();
-                            frame.limit_packets = number_of_packets as i32;
 
-                            stack.push_back(frame.clone());
-                            *frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, limit: -1, limit_packets: -1, packets: vec![]};
+                            // Read X packets into this one
+                            for nr_p in 0..number_of_packets {
+                                frame.packets.push(read_packet(it, tape, carry));
+                            }
+
+                            // finish this packet
+                            frame.state = 3;
+
                         } else {
                             // total length in bits
                             let total_packet_length = read(15, tape, carry, frame).unwrap() as i32;
-                            frame.limit = total_packet_length;
 
-                            stack.push_back(frame.clone());
-                            *frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, limit: -1, limit_packets: -1, packets: vec![]};
+                            // Read packets until size is hit
+                            let mut packets_size = 0;
+                            while packets_size < total_packet_length as u32 {
+                                let p = read_packet(it, tape, carry);
+                                packets_size += p.size;
+                                frame.packets.push(p);
+                            }
+                            frame.size += packets_size;
+                            // finish this packet
+                            frame.state = 3;
                         }
                     }
 
@@ -157,29 +175,6 @@ fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque
                 }
                 _ => {}
             }
-            
-            // Finished packet.
-            if ! stack.is_empty() { 
-                let back = stack.back_mut().unwrap();
-                let size = frame.size;
-                back.packets.push(frame.clone());
-
-                back.limit -= size as i32;
-
-                if back.limit == 0 {
-                    packets.push(stack.pop_back().unwrap());
-                } else {
-                    if back.limit_packets > 0 && back.limit_packets == back.packets.len() as i32  {
-                        packets.push(stack.pop_back().unwrap()); 
-                    }
-                }
-
-            } else {
-                packets.push(frame.clone());
-            }
-
-            // New frame
-            *frame = Frame{ state: 0, version: 0, opcode: 0, acc: 0, size: 0, limit: -1, limit_packets: -1, packets: vec![]};
 
             return Some(frame.clone());
         }
@@ -192,14 +187,6 @@ fn step(tape: &mut u32, carry: &mut u32, frame: &mut Frame, stack: &mut VecDeque
 fn read(nr_bytes: u32, tape: &mut u32, carry: &mut u32, frame: &mut Frame) -> Option<u32> {
 
     if nr_bytes <= *carry {
-
-        if frame.limit != -1 {
-            if frame.limit >= nr_bytes as i32 {
-                frame.limit -= nr_bytes as i32;
-            } else {
-                return None
-            }
-        }
 
         frame.size += nr_bytes;
 
