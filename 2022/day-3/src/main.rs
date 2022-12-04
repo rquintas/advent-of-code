@@ -320,7 +320,7 @@ CrZsJsPPZsGzwwsLwLmpwMDw";
 
     let mut priority = 0;
 
-    for line in lines {
+    for line in &lines {
         let chars: Vec<char> = line.chars().collect::<Vec<_>>();
         let size = chars.len();
         let half = size / 2;
@@ -344,4 +344,26 @@ CrZsJsPPZsGzwwsLwLmpwMDw";
     }
 
     println!("{}", priority);
+
+    // Part 2
+    priority = 0;
+
+    for i in (0..lines.len()).step_by(3) {
+
+        let chars1: Vec<char> = lines[i].chars().collect::<Vec<_>>();
+        let s1: HashSet<char> = HashSet::from_iter(chars1.iter().cloned());
+        let chars2: Vec<char> = lines[i+1].chars().collect::<Vec<_>>();
+        let s2: HashSet<char> = HashSet::from_iter(chars2.iter().cloned());
+        let chars3: Vec<char> = lines[i+2].chars().collect::<Vec<_>>();
+        let s3: HashSet<char> = HashSet::from_iter(chars3.iter().cloned());
+
+        let mut intersection: HashSet<char> = &s1 & &s2;
+
+        for x in intersection.intersection(&s3) {
+            priority += abc_vec.iter().position(|&r| r == *x).unwrap();
+        }   
+    }
+
+    println!("Puzzle 2: {}", priority);
+
 }
