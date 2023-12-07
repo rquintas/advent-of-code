@@ -134,13 +134,6 @@ fn classify(cards: &str) -> String {
 
 fn part2(input: &str) -> String {
 
-    let cards = [ 'A', 'K', 'Q', 'T', '9', '8', '7', '6', '5', '4', '3', '2', 'J' ];
-    let mut cards_map: HashMap<&char, usize> = HashMap::new();
-    for (i, card) in cards.iter().enumerate() {
-        cards_map.insert(card, cards.len() - i - 1 );
-    }
-    dbg!(&cards_map);
-
     let line_iter = input.lines();
     let mut hands = Vec::new();
 
